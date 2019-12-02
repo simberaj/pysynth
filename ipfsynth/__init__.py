@@ -1,1 +1,0 @@
-from synth import synthesize
