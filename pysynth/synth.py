@@ -6,6 +6,28 @@ import pandas as pd
 from . import catdecat
 
 
+# class Unroller(Protocol):
+class Unroller:
+    def unroll(self, matrix: np.ndarray) -> np.ndarray:
+        raise NotImplementedError
+
+
+class LargestRemainderUnroller(Unroller):
+    def unroll(self, matrix: np.ndarray) -> np.ndarray:
+        raise NotImplementedError
+
+
+class RandomSamplerUnroller(Unroller):
+    def unroll(self, matrix: np.ndarray) -> np.ndarray:
+        raise NotImplementedError
+
+
+GENERATORS = {
+    'lrem': LargestRemainderUnroller,
+    'random': RandomSamplerUnroller,
+}
+
+
 class IPFSynthesizer:
     '''Synthesize a dataframe using iterative proportional fitting.
 
@@ -124,7 +146,7 @@ def ipf(seed_matrix: np.ndarray,
     assert n_dim == len(marginals), 'marginal dimensions do not match IPF seed'
     total = marginals[0].sum()
     for i in range(1, len(marginals)):
-        if not marginals[i].sum() == total:
+        if not np.isclose(marginals[i].sum(), total):
             raise ValueError('marginal sum totals do not match')
     # precompute shapes, indices and values for marginal modifiers
     shapes = {}
@@ -145,25 +167,4 @@ def ipf(seed_matrix: np.ndarray,
             matrix = matrix / np.where(dim_sums == 0, 1, dim_sums) * marginal
         diff = abs(matrix - previous).max()
     return matrix
-
-
-class Unroller(Protocol):
-    def unroll(self, matrix: np.ndarray) -> np.ndarray:
-        raise NotImplementedError
-
-
-class LargestRemainderUnroller(Unroller):
-    def unroll(self, matrix: np.ndarray) -> np.ndarray:
-        raise NotImplementedError
-
-
-class RandomSamplerUnroller(Unroller):
-    def unroll(self, matrix: np.ndarray) -> np.ndarray:
-        raise NotImplementedError
-
-
-GENERATORS = {
-    'lrem': LargestRemainderUnroller,
-    'random': RandomSamplerUnroller,
-}
 
