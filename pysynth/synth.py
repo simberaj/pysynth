@@ -8,13 +8,13 @@ from . import catdecat
 
 class IPFSynthesizer:
     '''Synthesize a dataframe using iterative proportional fitting.
-    
+
     Creates a dataframe that has similar statistical properties to the original
     but does not replicate its rows directly. Preserves univariate
     distributions and covariate distributions to a chosen degree.
     Non-categorical variables are converted to categorical for synthesis
     and then reconstructed using estimated distributions.
-    
+
     :param cond_dim: Degree to which to match covariate distributions.
         By default, covariates to degree two (two variables' cross-tables)
         will be preserved. If you set this higher than the number of columns in
@@ -27,12 +27,12 @@ class IPFSynthesizer:
     :param unroller: Method to use to reconstruct the dataset from
         the synthesized IPF matrix. Use a Unroller instance or one of the
         following strings:
-        
+
         -   `'lrem'` uses the deterministic largest remainder method (see
             :func:`generate_lrem` for details).
         -   `'random'` uses the non-deterministic random generation method (see
             :func:`generate_random` for details).
-    
+
     :param ignore_cols: Columns from the input dataframe to not synthesize
         (identifiers etc.); will be omitted from the output.
     :param seed: Random generator seed for the categorizer and unroller.
@@ -60,10 +60,10 @@ class IPFSynthesizer:
             else catdecat.Categorizer(seed=seed)
         )
         self.ignore_cols = ignore_cols
-    
+
     def fit(self, dataframe: pd.DataFrame) -> None:
         '''Prepare the synthesis according to the provided dataframe.
-        
+
         :param dataframe: Dataframe to synthesize. Every column is replicated;
             if there are any identifier columns that should not be replicated,
             remove them beforehand.
@@ -76,10 +76,10 @@ class IPFSynthesizer:
             marginals
         )
         self.original_n_rows = dataframe.shape[0]
-    
+
     def generate(self, n_rows: Optional[int]) -> pd.DataFrame:
         '''Generate a synthetic dataframe with a given number of rows.
-        
+
         :param n_rows: Number of rows for the output dataframe. If not given,
             it will match the fitting dataframe.
         '''
@@ -87,16 +87,16 @@ class IPFSynthesizer:
         if n_rows is not None:
             matrix *= (n_rows / self.original_n_rows)
         return self.decategorize(self._map_axes(self.unroller.unroll(matrix)))
-    
+
     def fit_transform(self, dataframe: pd.DataFrame) -> pd.DataFrame:
         '''Fit the synthesizer and synthesize an equal-size dataframe.'''
         self.fit(dataframe)
         return self.generate()
-    
+
     def _get_marginals(dataframe: pd.DataFrame
                        ) -> Tuple[List[np.ndarray], Dict[str, Dict[int, Any]]]:
         raise NotImplementedError
-        
+
     def _map_axes(array: np.ndarray) -> pd.DataFrame:
         # axis_values: Dict[str, Dict[int, Any]]
         raise NotImplementedError
@@ -109,7 +109,42 @@ def ipf(seed_matrix: np.ndarray,
         marginals: List[np.ndarray],
         precision: float = 1e-9
         ) -> np.ndarray:
-    raise NotImplementedError
+    '''Perform iterative proportional fitting (IPF).
+
+    :param seed_matrix: Seed matrix, shows a-priori conditional probabilities
+        across dimensions.
+    :param marginals: Marginal sums for the IPF dimensions. The marginal sums
+        of the output matrix will match these.
+    :param precision: Terminate IPF when the largest difference of an
+        individual cell value between two iterations drops below this
+        threshold.
+    '''
+    matrix = seed_matrix.astype(float)
+    n_dim = len(seed_matrix.shape)
+    assert n_dim == len(marginals), 'marginal dimensions do not match IPF seed'
+    total = marginals[0].sum()
+    for i in range(1, len(marginals)):
+        if not marginals[i].sum() == total:
+            raise ValueError('marginal sum totals do not match')
+    # precompute shapes, indices and values for marginal modifiers
+    shapes = {}
+    other_dims = {}
+    for dim_i in range(n_dim):
+        shapes[dim_i] = [-1 if i == dim_i else 1 for i in range(n_dim)]
+        other_dims[dim_i] = tuple(i for i in range(n_dim) if i != dim_i)
+    marginals = [
+        np.array(marginal).reshape(shapes[dim_i])
+        for dim_i, marginal in enumerate(marginals)
+    ]
+    # perform IPF
+    diff = precision + 1
+    while diff > precision:
+        previous = matrix
+        for dim_i, marginal in enumerate(marginals):
+            dim_sums = matrix.sum(axis=other_dims[dim_i]).reshape(shapes[dim_i])
+            matrix = matrix / np.where(dim_sums == 0, 1, dim_sums) * marginal
+        diff = abs(matrix - previous).max()
+    return matrix
 
 
 class Unroller(Protocol):
