@@ -9,6 +9,8 @@ import pysynth.synth
 
 IPF_PRECISION = 1e-10
 
+np.random.seed(1711)
+
 @pytest.mark.parametrize('shape, zero_fraction', [
         ((4, 4), 0),
         ((8, 5), 0),
