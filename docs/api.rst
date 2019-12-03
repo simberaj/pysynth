@@ -1,7 +1,5 @@
-API documentation
+PySynth API
 ==========================
-
-This document summarizes the API of pysynth.
 
 Data synthesis
 --------------
@@ -14,3 +12,6 @@ Categorization and continuous variable reconstruction
 
 .. automodule:: pysynth.catdecat
    :members:
+   :exclude-members: Binner, Distributor
+
+
