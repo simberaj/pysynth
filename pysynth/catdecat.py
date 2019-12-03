@@ -1,3 +1,17 @@
+'''Bin continuous variables to categorical and reconstruct them back.
+
+An auxiliary module that enables categorical-only synthesizers to work with
+continuous variables by binning them to categories for the synthesis while
+remembering the value distributions within each category, and then converting
+the synthesized categories back to continuous values using those distributions.
+
+The main work is done by the :class:`Categorizer` that does this trick for a
+single variable (pandas Series). It might be further configured by using an
+appropriate *binner* such as :class:`QuantileBinner` to choose the numeric
+bounds for the categories
+and an appropriate *distributor* such as :class:`FittingDistributor`
+to remember and regenerate the intra-category value distribution.
+'''
 
 from __future__ import annotations
 # from typing import Union, Optional, List, Dict, Tuple, Protocol
@@ -204,16 +218,18 @@ class Categorizer:
     unchanged.
 
     :param binner: Method to use to determine interval boundaries for
-        conversion of numeric variables to categorical. Use a Binner instance
-        or one of the following strings:
+        conversion of numeric variables to categorical. Use a :class:`Binner`
+        instance or one of the following strings:
 
         -   `'quantile'` for binning into quantiles (:class:`QuantileBinner`),
         -   `'equalrange'` for binning into equally sized bins
             (:class:`EqualRangeBinner`).
 
     :param bins: Number of intervals to which to bin non-categorical variables,
-        or boundaries of the intervals as a list. If a list is given, do not
-        specify the minimum or maximum, just the intermediate cuts.
+        or boundaries of the intervals as a list. If a list is given, it
+        overrides the *binner* argument and uses :class:`AprioriBinner`. In
+        that case, do not specify the minimum or maximum in the list, just the
+        intermediate cuts.
     :param max_num_cats: Maximum number of categories to accept. High numbers
         of categories make the synthesizer unstable. If the
         variable has more distinct values than this number after
