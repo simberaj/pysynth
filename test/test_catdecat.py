@@ -9,6 +9,8 @@ import pytest
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import pysynth.catdecat
 
+np.random.seed(1711)
+
 @pytest.mark.parametrize('binner_cls, bins', list(itertools.product(
     pysynth.catdecat.BINNERS.values(), [5, 10, 20],
 )))
@@ -69,18 +71,50 @@ def test_mean_distributor():
         dist.fit(vals)
         assert (dist.generate(20) == np.array([val_mean] * 20)).all()
 
-
-def test_categorizer():
+@pytest.mark.parametrize('categ', [
+    pysynth.catdecat.Categorizer(seed=42),
+    pysynth.catdecat.Categorizer(binner='equalrange', distributor='mean', seed=42),
+])
+def test_categorizer_numeric(categ):
     minval = -3
     maxval = 10
-    vals = pd.Series(np.random.rand(100) * (maxval - minval) + minval)
+    vals = pd.Series(np.random.rand(100) * 13 - 3)
+    categ.fit(vals)
+    check_properly_categorized(vals, categ)
+
+@pytest.mark.parametrize('n_cats', [2, 20, 70])
+def test_categorizer_category(n_cats):
+    vals = pd.Series(np.random.choice([chr(48 + i) for i in range(n_cats)], 300))
     c = pysynth.catdecat.Categorizer(seed=42)
-    cated = c.fit_transform(vals)
+    if vals.nunique() > c.max_num_cats:
+        with pytest.raises(ValueError):
+            c.fit(vals)
+    else:
+        trans = c.fit_transform(vals)
+        assert (trans == vals).all()
+
+
+@pytest.mark.parametrize('n_vals', [2, 20, 70])
+def test_categorizer_integer(n_vals):
+    vals = pd.Series(np.random.randint(n_vals, size=300))
+    c = pysynth.catdecat.Categorizer(seed=42)
+    c.fit(vals)
+    if n_vals < c.min_for_bin:
+        assert (c.transform(vals) == vals).all()
+    else:
+        check_properly_categorized(vals, c)
+
+
+def check_properly_categorized(vals, categ):
+    cats = categ.fit_transform(vals)
     # check that all values lie in the delimited intervals
-    for val, interv in zip(vals, cated):
+    for val, interv in zip(vals, cats):
         assert val in interv
-    reconst = c.inverse_transform(cated)
-    means = reconst.groupby(cated).mean()
-    # check that means of reconstructed values lie in the intervals
-    for interv, mean in means.iteritems():
-        assert mean in interv
+    reconst = categ.inverse_transform(cats)
+    # check that all reconstructed values lie in the intervals
+    for interv, subser in reconst.groupby(cats):
+        for item in subser:
+            assert item in interv
+    # for interv, mean in means.iteritems():
+        # assert mean in interv
+    
