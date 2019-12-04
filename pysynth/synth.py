@@ -115,9 +115,17 @@ class IPFSynthesizer:
         self.fit(dataframe)
         return self.generate()
 
+    @staticmethod
     def _get_marginals(dataframe: pd.DataFrame
-                       ) -> Tuple[List[np.ndarray], Dict[str, Dict[int, Any]]]:
-        raise NotImplementedError
+                       ) -> Tuple[List[np.ndarray], Dict[str, pd.Series]]:
+        marginals = []
+        maps = {}
+        for col in dataframe:
+            valcounts = dataframe[col].value_counts(dropna=False, sort=False)
+            valcounts = valcounts[valcounts > 0]
+            marginals.append(valcounts.values)
+            maps[col] = pd.Series(valcounts.index, index=np.arange(len(valcounts)))
+        return marginals, maps
 
     def _map_axes(array: np.ndarray) -> pd.DataFrame:
         # axis_values: Dict[str, Dict[int, Any]]
@@ -125,6 +133,16 @@ class IPFSynthesizer:
 
     def _compute_seed_matrix(dataframe: pd.DataFrame) -> np.ndarray:
         raise NotImplementedError
+    
+    def categorize(self, dataframe: pd.DataFrame) -> pd.DataFrame:
+        '''Convert all variables to categorical using my categorizer.'''
+        raise NotImplementedError
+    
+    def decategorize(self, dataframe: pd.DataFrame) -> pd.DataFrame:
+        '''Reconstruct all non-categorical variables using my categorizer.'''
+        raise NotImplementedError
+    
+    
 
 
 def ipf(seed_matrix: np.ndarray,

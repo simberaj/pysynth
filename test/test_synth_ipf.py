@@ -2,10 +2,12 @@ import sys
 import os
 
 import numpy as np
+import pandas as pd
 import pytest
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import pysynth.synth
+import test_data
 
 IPF_PRECISION = 1e-10
 
@@ -48,3 +50,21 @@ def test_ipf_dim_mismatch():
 def test_ipf_sum_mismatch():
     with pytest.raises(ValueError):
         pysynth.synth.ipf(np.random.rand(2,2), [np.ones(2), np.full(2, 2)])
+
+@pytest.mark.parametrize('openml_id', [31, 1461, 40536])
+def test_get_marginals(openml_id):
+    df = test_data.get_openml(openml_id)
+    df = df.drop(
+        [col for col, dtype in df.dtypes.iteritems() if not pd.api.types.is_categorical_dtype(dtype)],
+        axis=1
+    )
+    margs, maps = pysynth.synth.IPFSynthesizer._get_marginals(df)
+    for i, marg in enumerate(margs):
+        assert np.issubdtype(marg.dtype, np.integer)
+        assert len(marg) == df[df.columns[i]].nunique(dropna=False)
+        assert (marg >= 0).all()
+        assert marg.sum() == len(df.index)
+    for col in maps:
+        assert col in df.columns
+        assert (maps[col].index == np.arange(len(maps[col].index))).all()
+        assert frozenset(maps[col].values) == frozenset(df[col].unique())
