@@ -4,10 +4,13 @@ import itertools
 
 import numpy as np
 import pandas as pd
+import scipy.stats
 import pytest
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import pysynth.catdecat
+
+import test_data
 
 np.random.seed(1711)
 
@@ -51,16 +54,47 @@ def test_apriori_binner():
         assert binner.get(vals) == cuts
 
 
-@pytest.mark.parametrize('dist_cls', pysynth.catdecat.DISTRIBUTORS.values())
-def test_distributors(dist_cls):
+@pytest.mark.parametrize('dist_cls', pysynth.catdecat.ContinuousDistributor.CODES.values())
+def test_continuous_distributors(dist_cls):
     distributor = dist_cls(seed=42)
     minval = 2
     maxval = 7
     for i in range(10):
-        vals = pd.Series(np.random.rand(100) * (maxval - minval) + minval)
+        vals = np.random.rand(100) * (maxval - minval) + minval
         distributor.fit(vals)
-        reconst = distributor.generate(100)
+        reconst = distributor.sample(100)
         assert minval <= reconst.min() <= reconst.max() <= maxval
+
+@pytest.mark.parametrize('dist_cls', pysynth.catdecat.DiscreteDistributor.CODES.values())
+def test_discrete_distributors(dist_cls):
+    distributor = dist_cls(seed=42)
+    minval = 2
+    maxval = 12
+    for i in range(10):
+        vals = (np.random.rand(100) * (maxval - minval) + minval).astype(int)
+        uniques = np.unique(vals)
+        distributor.fit(vals)
+        reconst = distributor.sample(100)
+        assert minval <= reconst.min() <= reconst.max() <= maxval
+        assert np.isin(reconst, uniques).all()
+
+def test_restricted_sampler_ok():
+    minval = 1
+    maxval = 3
+    testdist = scipy.stats.norm(2, 1)
+    sampler = pysynth.catdecat.restricted_sampler(testdist.rvs, minval, maxval)
+    x = sampler(1000)
+    assert (x >= minval).all()
+    assert (x <= maxval).all()
+    assert len(x) == 1000
+
+def test_restricted_sampler_fail():
+    minval = 1
+    maxval = 3
+    testgen = lambda n: np.full(n, 4)
+    sampler = pysynth.catdecat.restricted_sampler(testgen, 1, 3)
+    with pytest.raises(ValueError):
+        x = sampler(1000)
 
 
 def test_mean_distributor():
@@ -69,52 +103,80 @@ def test_mean_distributor():
         vals = np.random.rand(100)
         val_mean = vals.mean()
         dist.fit(vals)
-        assert (dist.generate(20) == np.array([val_mean] * 20)).all()
+        assert (dist.sample(20) == np.array([val_mean] * 20)).all()
 
-@pytest.mark.parametrize('categ', [
-    pysynth.catdecat.Categorizer(seed=42),
-    pysynth.catdecat.Categorizer(binner='equalrange', distributor='mean', seed=42),
-])
-def test_categorizer_numeric(categ):
+
+SERIES_DISCRETIZERS = [
+    pysynth.catdecat.SeriesDiscretizer(seed=42),
+    pysynth.catdecat.SeriesDiscretizer(binner='equalrange', continuous_distributor='mean', seed=42),
+]
+
+@pytest.mark.parametrize('categ, na_frac', list(itertools.product(
+    SERIES_DISCRETIZERS, [0, 0.2, 1]
+)))
+def test_discretizer_numeric(categ, na_frac):
+    size = 100
     minval = -3
     maxval = 10
-    vals = pd.Series(np.random.rand(100) * 13 - 3)
-    categ.fit(vals)
-    check_properly_categorized(vals, categ)
+    vals = pd.Series(np.random.rand(size) * 13 - 3)
+    vals[np.random.rand(size) < na_frac] = np.nan
+    cats = categ.fit_transform(vals)
+    check_series_properly_discretized(vals, cats, categ.inverse_transform(cats))
 
 @pytest.mark.parametrize('n_cats', [2, 20, 70])
-def test_categorizer_category(n_cats):
+def test_discretizer_category(n_cats):
     vals = pd.Series(np.random.choice([chr(48 + i) for i in range(n_cats)], 300))
-    c = pysynth.catdecat.Categorizer(seed=42)
-    if vals.nunique() > c.max_num_cats:
-        with pytest.raises(ValueError):
-            c.fit(vals)
-    else:
+    c = pysynth.catdecat.SeriesDiscretizer(seed=42)
+    with pytest.raises(TypeError):
         trans = c.fit_transform(vals)
-        assert (trans == vals).all()
 
 
 @pytest.mark.parametrize('n_vals', [2, 20, 70])
-def test_categorizer_integer(n_vals):
+def test_discretizer_integer(n_vals):
     vals = pd.Series(np.random.randint(n_vals, size=300))
-    c = pysynth.catdecat.Categorizer(seed=42)
-    c.fit(vals)
+    c = pysynth.catdecat.SeriesDiscretizer(seed=42)
+    cats = c.fit_transform(vals)
     if n_vals < c.min_for_bin:
-        assert (c.transform(vals) == vals).all()
+        assert (cats == vals).all()
     else:
-        check_properly_categorized(vals, c)
+        check_series_properly_discretized(vals, cats, c.inverse_transform(cats))
 
 
-def check_properly_categorized(vals, categ):
-    cats = categ.fit_transform(vals)
-    # check that all values lie in the delimited intervals
-    for val, interv in zip(vals, cats):
-        assert val in interv
-    reconst = categ.inverse_transform(cats)
-    # check that all reconstructed values lie in the intervals
-    for interv, subser in reconst.groupby(cats):
-        for item in subser:
-            assert item in interv
-    # for interv, mean in means.iteritems():
-        # assert mean in interv
-    
+def check_df_properly_discretized(df, tr_df, reconst_df, max_nums=10):
+    orig_cols = frozenset(df.columns)
+    assert orig_cols == frozenset(tr_df.columns)
+    assert orig_cols == frozenset(reconst_df.columns)
+    for col in df.columns:
+        check_series_properly_discretized(
+            df[col],
+            tr_df[col],
+            reconst_df[col],
+            max_nums=max_nums
+        )
+
+def check_series_properly_discretized(orig, tr, reconst, max_nums=10):
+    orig_notna = orig.notna()
+    tr_notna = tr.notna()
+    reconst_notna = reconst.notna()
+    assert (orig_notna == tr_notna).all()
+    assert (orig_notna == reconst_notna).all()
+    if pd.api.types.is_numeric_dtype(orig):
+        if pd.api.types.is_categorical_dtype(tr):
+            for val, interv, reconst in zip(orig[orig_notna], tr[tr_notna], reconst[reconst_notna]):
+                assert val in interv
+                assert reconst in interv
+        else:
+            assert orig.nunique() <= max_nums
+            assert (orig[orig_notna] == tr[tr_notna]).all()
+    else:
+        assert (orig[orig_notna] == tr[tr_notna]).all()
+
+
+@pytest.mark.parametrize('openml_id', [31, 1461, 40536])
+def test_df_discretizer(openml_id):
+    disc = pysynth.catdecat.DataFrameDiscretizer(max_num_cats=300)
+    df = test_data.get_openml(openml_id)
+    tr_df = disc.fit_transform(df)
+    reconst_df = disc.inverse_transform(tr_df)
+    check_df_properly_discretized(df, tr_df, reconst_df, max_nums=10)
+

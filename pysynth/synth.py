@@ -57,17 +57,13 @@ class IPFSynthesizer:
 
     :param ignore_cols: Columns from the input dataframe to not synthesize
         (identifiers etc.); will be omitted from the output.
-    :param seed: Random generator seed for the categorizer and unroller.
-        (If a custom categorizer is specified, its seed is not overwritten by
+    :param seed: Random generator seed for the discretizer and unroller.
+        (If a custom discretizer is specified, its seed is not overwritten by
         this setting.)
     '''
     def __init__(self,
                  cond_dim: int = 2,
-                 categorizer: Union[
-                     None,
-                     catdecat.Categorizer,
-                     Dict[str, catdecat.Categorizer]
-                 ] = None,
+                 categorizer: Optional[catdecat.DataFrameDiscretizer] = None,
                  unroller: Union[str, Unroller] = 'lrem',
                  ignore_cols: List[str] = [],
                  seed: Optional[int] = None,
@@ -77,9 +73,9 @@ class IPFSynthesizer:
             UNROLLERS[unroller](seed=seed) if isinstance(unroller, str)
             else unroller
         )
-        self.categorizer = (
-            categorizer if categorizer is not None
-            else catdecat.Categorizer(seed=seed)
+        self.discretizer = (
+            discretizer if discretizer is not None
+            else catdecat.DataFrameDiscretizer(seed=seed)
         )
         self.ignore_cols = ignore_cols
 
@@ -90,11 +86,11 @@ class IPFSynthesizer:
             if there are any identifier columns that should not be replicated,
             remove them beforehand.
         '''
-        categorized = self.categorize(dataframe.drop(self.ignore_cols, axis=1))
-        marginals, axis_values = self._get_marginals(categorized)
+        discrete = self.discretize(dataframe.drop(self.ignore_cols, axis=1))
+        marginals, axis_values = self._get_marginals(discrete)
         self.axis_values = axis_values
         self.synthed_matrix = ipf(
-            self._compute_seed_matrix(categorized),
+            self._compute_seed_matrix(discrete),
             marginals
         )
         self.original_n_rows = dataframe.shape[0]
@@ -108,7 +104,7 @@ class IPFSynthesizer:
         matrix = self.synthed_matrix
         if n_rows is not None:
             matrix *= (n_rows / self.original_n_rows)
-        return self.decategorize(self._map_axes(self.unroller.unroll(matrix)))
+        return self.dediscretize(self._map_axes(self.unroller.unroll(matrix)))
 
     def fit_transform(self, dataframe: pd.DataFrame) -> pd.DataFrame:
         '''Fit the synthesizer and synthesize an equal-size dataframe.'''
@@ -134,12 +130,12 @@ class IPFSynthesizer:
     def _compute_seed_matrix(dataframe: pd.DataFrame) -> np.ndarray:
         raise NotImplementedError
     
-    def categorize(self, dataframe: pd.DataFrame) -> pd.DataFrame:
-        '''Convert all variables to categorical using my categorizer.'''
+    def discretize(self, dataframe: pd.DataFrame) -> pd.DataFrame:
+        '''Convert all variables to categorical using my discretizer.'''
         raise NotImplementedError
     
-    def decategorize(self, dataframe: pd.DataFrame) -> pd.DataFrame:
-        '''Reconstruct all non-categorical variables using my categorizer.'''
+    def dediscretize(self, dataframe: pd.DataFrame) -> pd.DataFrame:
+        '''Reconstruct all non-categorical variables using my discretizer.'''
         raise NotImplementedError
     
     
