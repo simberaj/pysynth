@@ -149,24 +149,16 @@ class IPFSynthesizer:
         matrix = self.synthed_matrix
         if n_rows is not None:
             matrix *= (n_rows / self.original_n_rows)
-        return self.dediscretize(self._map_axes(unroll(
-            self.rounder.round(matrix)
-        )))
+        return self.discretizer.inverse_transform(
+            map_axes(unroll(self.rounder.round(matrix)), self.axis_values)
+        )
 
     def fit_transform(self, dataframe: pd.DataFrame) -> pd.DataFrame:
         '''Fit the synthesizer and synthesize an equal-size dataframe.'''
         self.fit(dataframe)
         return self.generate()
 
-    def _map_axes(array: np.ndarray) -> pd.DataFrame:
-        # axis_values: Dict[str, Dict[int, Any]]
-        raise NotImplementedError
-
     def _compute_seed_matrix(dataframe: pd.DataFrame) -> np.ndarray:
-        raise NotImplementedError
-
-    def dediscretize(self, dataframe: pd.DataFrame) -> pd.DataFrame:
-        '''Reconstruct all non-categorical variables using my discretizer.'''
         raise NotImplementedError
 
 
@@ -239,3 +231,20 @@ def unroll(matrix: np.ndarray) -> np.ndarray:
     return np.stack(np.unravel_index(
         np.cumsum(inds), matrix.shape
     )).transpose()
+
+
+def map_axes(indices: np.ndarray,
+             axis_values: Dict[str, pd.Series],
+             ) -> pd.DataFrame:
+    '''Convert a category index array to a dataframe with categories.
+
+    :param indices: A 2-D integer array.
+    :param axis_values: A dictionary with length matching the column count of
+        `indices`. Its keys are names of the columns to be assigned to the
+        dataframe, while values map the category indices from the given column
+        of the integer array to the expected dataframe values.
+    '''
+    dataframe = pd.DataFrame(indices, columns=list(axis_values.keys()))
+    for col, mapper in axis_values.items():
+        dataframe[col] = dataframe[col].map(mapper)
+    return dataframe

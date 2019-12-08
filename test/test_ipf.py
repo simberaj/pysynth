@@ -20,7 +20,7 @@ np.random.seed(1711)
         ((5, 3, 3), 0),
         ((2, 8, 7, 4, 3), 0),
         ((4, 4), 0.1),
-        ((8, 5), 0.3),
+        ((8, 5), 0.2),
         ((5, 3, 3), 0.1),
         ((2, 8, 7, 4, 3), 0.05),
     ]
@@ -107,3 +107,23 @@ def test_unroll(mat):
     unroll_df = pd.DataFrame(unrolled)
     for index, subdf in unroll_df.groupby(unroll_df.columns.tolist()):
         assert mat[index] == len(subdf.index)
+
+
+def test_map_axes():
+    n_cols = 6
+    n_cats = 5
+    indices = (np.random.rand(40, n_cols) * n_cats).astype(int)
+    axis_values = {
+        chr(97 + np.random.randint(26)): pd.Series(
+            [chr(97 + k) for k in np.random.randint(26, size=n_cats)],
+            index=np.arange(n_cats)
+        ) for i in range(n_cols)
+    }
+    df = pysynth.ipf.map_axes(indices, axis_values)
+    assert list(df.columns) == list(axis_values.keys())
+    assert len(df.index) == indices.shape[0]
+    i = 0
+    for col, mapping in axis_values.items():
+        for index, value in mapping.iteritems():
+            assert (df[col][indices[:,i] == index] == value).all()
+        i += 1
