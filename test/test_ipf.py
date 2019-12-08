@@ -59,7 +59,7 @@ def test_get_marginals(openml_id):
         [col for col, dtype in df.dtypes.iteritems() if not pd.api.types.is_categorical_dtype(dtype)],
         axis=1
     )
-    margs, maps = pysynth.ipf.IPFSynthesizer._get_marginals(df)
+    margs, maps = pysynth.ipf.get_marginals(df)
     for i, marg in enumerate(margs):
         assert np.issubdtype(marg.dtype, np.integer)
         assert len(marg) == df[df.columns[i]].nunique(dropna=False)
@@ -92,3 +92,18 @@ def test_rounders(rder, mat):
     assert result[mat == 0].sum() == 0
     # for dim_i, dim in enumerate(mat.shape):
         # assert (result[:,dim_i] < dim).all()
+
+@pytest.mark.parametrize('mat', [
+    np.array([[[2,1],[0,0]],[[1,1],[1,3]],[[1,0],[1,2]]]),
+    (np.random.rand(4,8,7) * 3).astype(int),
+    (np.where(np.random.rand(3,7,4,2) < .2, 0, np.random.rand(3,7,4,2) * 2)).astype(int),
+])
+def test_unroll(mat):
+    unrolled = pysynth.ipf.unroll(mat)
+    assert unrolled.shape == (mat.sum(), mat.ndim)
+    assert (unrolled >= 0).all()
+    for dim_i, dim in enumerate(mat.shape):
+        assert (unrolled[:,dim_i] < dim).all()
+    unroll_df = pd.DataFrame(unrolled)
+    for index, subdf in unroll_df.groupby(unroll_df.columns.tolist()):
+        assert mat[index] == len(subdf.index)

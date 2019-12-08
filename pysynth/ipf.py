@@ -8,10 +8,19 @@ from . import catdecat
 
 class MatrixRounder:
     def round(self, matrix: np.ndarray) -> np.ndarray:
+        '''Round a matrix to integers, preserving its grand total.'''
         raise NotImplementedError
 
 
 class LargestRemainderRounder(MatrixRounder):
+    '''Round a matrix to integers using the largest-remainder method.
+
+    The largest-remainder method (Hare quota) is deterministic and allocates
+    roundings to the largest remainders. Ties are broken by selecting the cells
+    with largest indices.
+
+    :param seed: Meaningless, this method is deterministic.
+    '''
     def __init__(self, seed: Optional[int] = None):
         pass # this is a deterministic rounder
 
@@ -22,7 +31,6 @@ class LargestRemainderRounder(MatrixRounder):
         remainders = matrix - rounded
         sum_remaining = int(np.round(remainders.sum()))
         # locate sum_remaining largest remainders
-        # ties are broken by selecting the ones with largest indices 
         ind_add = np.argsort(
             remainders, axis=None, kind='stable'
         )[::-1][:sum_remaining]
@@ -31,6 +39,13 @@ class LargestRemainderRounder(MatrixRounder):
 
 
 class RandomSamplingRounder(MatrixRounder):
+    '''Round a matrix to integers using random sampling.
+
+    Randomly sample from matrix cells, using their values as probabilities,
+    until the sum is matched.
+
+    :param seed: Seed for the random sampler.
+    '''
     def __init__(self, seed: Optional[int] = None):
         self.seed = seed
 
@@ -70,18 +85,18 @@ class IPFSynthesizer:
         will be preserved. If you set this higher than the number of columns in
         the dataframe, the dataframe will be replicated exactly (except for
         the categorization and decategorization of non-categorical variables).
-    :param categorizer: A :class:`catdecat.Categorizer` instance to convert
-        numeric variables to and from categorical ones. Can be specified as a
-        single instance or per variable in a dictionary. If not given, a single
-        instance with default setup will be created.
+    :param discretizer: A :class:`catdecat.DataFrameDiscretizer` instance to
+        convert numeric variables to and from categorical ones.
+        Can be specified as a single instance or per variable in a dictionary.
+        If not given, a single instance with default setup will be created.
     :param rounder: Method to use to round the IPF matrix to integer counts to
         enable row generation. Use a MatrixRounder instance or one of the
         following strings:
 
         -   `'lrem'` uses the deterministic largest remainder method (see
-            :func:`generate_lrem` for details).
+            :class:`LargestRemainderRounder` for details).
         -   `'random'` uses the non-deterministic random generation method (see
-            :func:`generate_random` for details).
+            :class:`RandomSamplingRounder` for details).
 
     :param ignore_cols: Columns from the input dataframe to not synthesize
         (identifiers etc.); will be omitted from the output.
@@ -91,7 +106,7 @@ class IPFSynthesizer:
     '''
     def __init__(self,
                  cond_dim: int = 2,
-                 categorizer: Optional[catdecat.DataFrameDiscretizer] = None,
+                 discretizer: Optional[catdecat.DataFrameDiscretizer] = None,
                  rounder: Union[str, MatrixRounder] = 'lrem',
                  ignore_cols: List[str] = [],
                  seed: Optional[int] = None,
@@ -114,8 +129,10 @@ class IPFSynthesizer:
             if there are any identifier columns that should not be replicated,
             remove them beforehand.
         '''
-        discrete = self.discretize(dataframe.drop(self.ignore_cols, axis=1))
-        marginals, axis_values = self._get_marginals(discrete)
+        discrete = self.discretizer.fit_transform(
+            dataframe.drop(self.ignore_cols, axis=1)
+        )
+        marginals, axis_values = get_marginals(discrete)
         self.axis_values = axis_values
         self.synthed_matrix = ipf(
             self._compute_seed_matrix(discrete),
@@ -132,7 +149,7 @@ class IPFSynthesizer:
         matrix = self.synthed_matrix
         if n_rows is not None:
             matrix *= (n_rows / self.original_n_rows)
-        return self.dediscretize(self._map_axes(self._unroll(
+        return self.dediscretize(self._map_axes(unroll(
             self.rounder.round(matrix)
         )))
 
@@ -141,39 +158,11 @@ class IPFSynthesizer:
         self.fit(dataframe)
         return self.generate()
 
-    @staticmethod
-    def _get_marginals(dataframe: pd.DataFrame
-                       ) -> Tuple[List[np.ndarray], Dict[str, pd.Series]]:
-        marginals = []
-        maps = {}
-        for col in dataframe:
-            valcounts = dataframe[col].value_counts(dropna=False, sort=False)
-            valcounts = valcounts[valcounts > 0]
-            marginals.append(valcounts.values)
-            maps[col] = pd.Series(valcounts.index, index=np.arange(len(valcounts)))
-        return marginals, maps
-
     def _map_axes(array: np.ndarray) -> pd.DataFrame:
         # axis_values: Dict[str, Dict[int, Any]]
         raise NotImplementedError
-   
-    def _unroll(matrix: np.ndarray) -> np.ndarray:
-        raise NotImplementedError
-        # unravel the flattened indices to conform to matrix dimensions
-        # factors = tuple(np.cumprod(np.array(matrix.shape)[::-1])[:-1][::-1])
-        # dims = []
-        # for factor in factors:
-            # cur_dim = bucket_is // factor
-            # dims.append(cur_dim)
-            # bucket_is -= (cur_dim * factor)
-        # dims.append(bucket_is)
-        # return np.stack(np.unravel_index(matrix, dims).transpose()
 
     def _compute_seed_matrix(dataframe: pd.DataFrame) -> np.ndarray:
-        raise NotImplementedError
-
-    def discretize(self, dataframe: pd.DataFrame) -> pd.DataFrame:
-        '''Convert all variables to categorical using my discretizer.'''
         raise NotImplementedError
 
     def dediscretize(self, dataframe: pd.DataFrame) -> pd.DataFrame:
@@ -223,3 +212,30 @@ def ipf(seed_matrix: np.ndarray,
         diff = abs(matrix - previous).max()
     return matrix
 
+
+def get_marginals(dataframe: pd.DataFrame
+                   ) -> Tuple[List[np.ndarray], Dict[str, pd.Series]]:
+    '''Compute marginal sums and mappings of indices to categories.'''
+    marginals = []
+    maps = {}
+    for col in dataframe:
+        valcounts = dataframe[col].value_counts(dropna=False, sort=False)
+        valcounts = valcounts[valcounts > 0]
+        marginals.append(valcounts.values)
+        maps[col] = pd.Series(valcounts.index, index=np.arange(len(valcounts)))
+    return marginals, maps
+
+
+def unroll(matrix: np.ndarray) -> np.ndarray:
+    '''Convert a matrix of cell counts to a matrix of cell indices with those counts.
+
+    :param matrix: A matrix of non-negative integers denoting counts of
+        observations. Each cell will generate this many rows with its positional
+        indices.
+    '''
+    cumcounts = np.cumsum(matrix)
+    inds = np.zeros(cumcounts[-1], dtype=int)
+    np.add.at(inds, cumcounts[:np.searchsorted(cumcounts, cumcounts[-1])], 1)
+    return np.stack(np.unravel_index(
+        np.cumsum(inds), matrix.shape
+    )).transpose()
