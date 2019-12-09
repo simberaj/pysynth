@@ -177,6 +177,8 @@ def test_df_discretizer(openml_id):
     disc = pysynth.catdecat.DataFrameDiscretizer(max_num_cats=300)
     df = test_data.get_openml(openml_id)
     tr_df = disc.fit_transform(df)
+    tr2_df = disc.transform(df)
+    pd.testing.assert_frame_equal(tr_df, tr2_df)
     reconst_df = disc.inverse_transform(tr_df)
     check_df_properly_discretized(df, tr_df, reconst_df, max_nums=10)
 
