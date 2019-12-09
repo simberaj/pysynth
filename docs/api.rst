@@ -1,11 +1,19 @@
 PySynth API
 ==========================
 
-Data synthesis
+Entry points
 --------------
 
-.. automodule:: pysynth.synth
+.. automodule:: pysynth
    :members:
+
+
+IPF synthesis
+--------------
+
+.. automodule:: pysynth.ipf
+   :members:
+
 
 Categorization and continuous variable reconstruction
 -----------------------------------------------------
