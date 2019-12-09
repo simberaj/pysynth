@@ -14,8 +14,7 @@ to remember and regenerate the intra-category value distribution.
 '''
 
 from __future__ import annotations
-# from typing import Union, Optional, List, Dict, Tuple, Protocol
-from typing import Union, Optional, List, Dict, Tuple
+from typing import Union, Optional, List, Dict, Callable
 
 import numpy as np
 import pandas as pd
@@ -26,7 +25,6 @@ import sklearn.neighbors
 np.seterr(all='raise')
 
 
-# class Binner(Protocol):
 class Binner:
     '''Interface for numeric variable interval boundary determiners.'''
     def get(self, data: pd.Series) -> List[float]:
@@ -75,7 +73,6 @@ BINNERS = {
 }
 
 
-# class Distributor(Protocol):
 class Distributor:
     '''Interface for numeric variable reconstructors.
 
@@ -96,7 +93,6 @@ class Distributor:
     @classmethod
     def create(cls, code: str, *args, **kwargs):
         return cls.CODES[code](*args, **kwargs)
-
 
 
 class SelectingDistributor:
@@ -128,7 +124,7 @@ class DiscreteDistributor(Distributor):
 
 class MeanDistributor:
     '''Reproduce the values as a constant value of their mean.'''
-    def __init__(self, seed = None):
+    def __init__(self, seed=None):
         pass
 
     def copy(self) -> MeanDistributor:
@@ -227,7 +223,7 @@ class StatisticalDistributor:
             return None
         finally:
             np.seterr(**old_setting)
-        if np.isnan(args).any(): # invalid distribution estimated
+        if np.isnan(args).any():       # invalid distribution estimated
             return None
         else:
             return distribution(*args)

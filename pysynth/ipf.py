@@ -1,4 +1,4 @@
-from typing import Any, Union, Optional, List, Dict, Tuple
+from typing import Union, Optional, List, Dict, Tuple
 
 import numpy as np
 import pandas as pd
@@ -23,7 +23,7 @@ class LargestRemainderRounder(MatrixRounder):
     :param seed: Meaningless, this method is deterministic.
     '''
     def __init__(self, seed: Optional[int] = None):
-        pass # this is a deterministic rounder
+        pass    # this is a deterministic rounder
 
     def round(self, matrix: np.ndarray) -> np.ndarray:
         # round down to integers, those are sure hits
@@ -313,7 +313,8 @@ def obscure_seed(true: np.ndarray,
         dimensions.
     :param cond_dim: The number of dimensions to preserve cross-sums for.
     '''
-    if cond_dim < 1: raise ValueError('invalid preservation dimension count')
+    if cond_dim < 1:
+        raise ValueError('invalid preservation dimension count')
     marginals = []
     dim_is = list(range(true.ndim))
     for sel_dim_is in itertools.combinations(dim_is, cond_dim):
@@ -327,6 +328,7 @@ def obscure_seed(true: np.ndarray,
                 left_dim_is.append(dim_i)
         marginals.append(true.sum(axis=tuple(left_dim_is)).reshape(sum_indexer))
     return ipf_multidim(marginals)
+
 
 def get_axis_values(dataframe: pd.DataFrame
                     ) -> Dict[str, pd.Series]:

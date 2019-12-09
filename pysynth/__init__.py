@@ -1,4 +1,3 @@
-import sys
 from typing import List, Optional
 
 import pandas as pd
@@ -10,6 +9,7 @@ SYNTHESIZERS = {
 }
 
 DEFAULT_METHOD = 'ipf'
+
 
 def synthesize(dataframe: pd.DataFrame,
                n_rows: Optional[int] = None,
