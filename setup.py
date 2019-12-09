@@ -19,14 +19,12 @@ setuptools.setup(
     author_email='simbera.jan@gmail.com',
     python_requires='>=3.7.0',
     url='https://github.com/simberaj/pysynth',
-    packages=setuptools.find_packages(),
+    packages=setuptools.find_packages(exclude=('tests', )),
     install_requires=required,
     extras_require={},
     include_package_data=True,
     license='MIT',
     keywords='synthesis ipf data python',
-    project_urls={
-    },
     classifiers=[
         'Development Status :: 2 - Pre-Alpha',
         'Environment :: Console',
