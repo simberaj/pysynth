@@ -57,19 +57,18 @@ def test_ipf_sum_mismatch():
     with pytest.raises(ValueError):
         pysynth.ipf.ipf([np.ones(2), np.full(2, 2)], np.random.rand(2,2))
 
+def test_ipf_shape_mismatch():
+    with pytest.raises(ValueError):
+        pysynth.ipf.ipf([np.ones(2), np.full((2, 4), .25)], np.random.rand(2,2))
+
 @pytest.mark.parametrize('openml_id', [31, 1461, 40536])
-def test_get_marginals(openml_id):
+def test_get_axis_values(openml_id):
     df = test_data.get_openml(openml_id)
     df = df.drop(
         [col for col, dtype in df.dtypes.iteritems() if not pd.api.types.is_categorical_dtype(dtype)],
         axis=1
     )
-    margs, maps = pysynth.ipf.get_marginals(df)
-    for i, marg in enumerate(margs):
-        assert np.issubdtype(marg.dtype, np.integer)
-        assert len(marg) == df[df.columns[i]].nunique(dropna=False)
-        assert (marg >= 0).all()
-        assert marg.sum() == len(df.index)
+    maps = pysynth.ipf.get_axis_values(df)
     for col in maps:
         assert col in df.columns
         assert (maps[col].index == np.arange(len(maps[col].index))).all()
@@ -97,6 +96,11 @@ def test_rounders(rder, mat):
     assert result[mat == 0].sum() == 0
     # for dim_i, dim in enumerate(mat.shape):
         # assert (result[:,dim_i] < dim).all()
+
+@pytest.mark.parametrize('mat', UNROUND_MATRICES)
+def test_lrem_rounder(mat):
+    result = pysynth.ipf.LargestRemainderRounder().round(mat)
+    assert abs(result - np.round(mat)).max() <= 1
 
 @pytest.mark.parametrize('mat', [
     np.array([[[2,1],[0,0]],[[1,1],[1,3]],[[1,0],[1,2]]]),
@@ -163,13 +167,33 @@ def test_calc_true_matrix():
 @pytest.mark.parametrize('shape, zero_fraction', SEED_GEN_PARAMS)
 def test_obscure_seed(shape, zero_fraction):
     seed_matrix = (generate_seed_matrix(shape, zero_fraction) * 10).astype(int)
-    # print(seed_matrix.ndim, seed_matrix.shape)
-    # print(seed_matrix)
-    # for cond_dim in range(1, min(seed_matrix.ndim, 4)):
-    for cond_dim in range(1, min(seed_matrix.ndim + 1, 4)):
-        # print(cond_dim)
+    n_dims = seed_matrix.ndim
+    for cond_dim in range(1, min(n_dims + 1, 4)):
         obscured = pysynth.ipf.obscure_seed(seed_matrix, cond_dim)
-        # print(seed_matrix)
-        # print(obscured)
-        # print(abs(obscured - seed_matrix).mean())
-    # raise RuntimeError
+        preserved_dims = [
+            tuple(sorted(frozenset(dims)))
+            for dims in itertools.combinations_with_replacement(
+                range(n_dims), cond_dim
+            )
+        ]
+        print(preserved_dims)
+        for sel_dim_is in preserved_dims:
+            other_dim_is = tuple(i for i in range(n_dims) if i not in sel_dim_is)
+            assert np.isclose(
+                obscured.sum(axis=other_dim_is),
+                seed_matrix.sum(axis=other_dim_is)
+            ).all()
+
+# @pytest.mark.parametrize('openml_id', [11, 31, 1461, 1480])
+@pytest.mark.parametrize('openml_id, rder', [(11, 'lrem'), (23, 'random')])
+def test_synth(openml_id, rder):
+    df = test_data.get_openml(openml_id)
+    synth = pysynth.ipf.IPFSynthesizer(rounder=rder).fit_transform(df)
+    assert frozenset(df.columns) == frozenset(synth.columns)
+    assert len(df.index) == len(synth.index)
+    for col in df.columns:
+        assert df[col].dtype == synth[col].dtype
+        if pd.api.types.is_categorical_dtype(df[col].dtype):
+            assert frozenset(synth[col].cat.categories).issubset(df[col].cat.categories)
+        else:
+            assert df[col].min() <= synth[col].mean() <= df[col].max()

@@ -95,9 +95,11 @@ class IPFSynthesizer:
         following strings:
 
         -   `'lrem'` uses the deterministic largest remainder method (see
-            :class:`LargestRemainderRounder` for details).
+            :class:`LargestRemainderRounder` for details) which is more suited
+            to small datasets.
         -   `'random'` uses the non-deterministic random generation method (see
-            :class:`RandomSamplingRounder` for details).
+            :class:`RandomSamplingRounder` for details), more suited to larger
+            datasets.
 
     :param ignore_cols: Columns from the input dataframe to not synthesize
         (identifiers etc.); will be omitted from the output.
@@ -135,23 +137,22 @@ class IPFSynthesizer:
         discrete = self.discretizer.fit_transform(
             dataframe.drop(self.ignore_cols, axis=1)
         )
-        marginals, axis_values = get_marginals(discrete)
-        self.axis_values = axis_values
-        self.synthed_matrix = ipf(
-            marginals,
-            obscure_seed(self.calc_true_matrix(discrete), self.cond_dim),
+        # marginals, axis_values = get_marginals(discrete)
+        self.axis_values = get_axis_values(discrete)
+        self.synthed_matrix = obscure_seed(
+            self.calc_true_matrix(discrete), self.cond_dim
         )
         self.original_n_rows = dataframe.shape[0]
 
     def sample(self, n: Optional[int] = None) -> pd.DataFrame:
         '''Generate a synthetic dataframe with a given number of rows.
 
-        :param n_rows: Number of rows for the output dataframe. If not given,
+        :param n: Number of rows for the output dataframe. If not given,
             it will match the fitting dataframe.
         '''
         matrix = self.synthed_matrix
-        if n_rows is not None:
-            matrix *= (n_rows / self.original_n_rows)
+        if n is not None:
+            matrix *= (n / self.original_n_rows)
         return self.discretizer.inverse_transform(
             map_axes(unroll(self.rounder.round(matrix)), self.axis_values)
         )
@@ -270,19 +271,6 @@ def ipf_check_marginals(marginals: List[np.ndarray], shape: Tuple[int]) -> None:
                 raise ValueError('marginal shape does not match seed')
 
 
-def get_marginals(dataframe: pd.DataFrame
-                   ) -> Tuple[List[np.ndarray], Dict[str, pd.Series]]:
-    '''Compute marginal sums and mappings of indices to categories.'''
-    marginals = []
-    maps = {}
-    for col in dataframe:
-        valcounts = dataframe[col].value_counts(dropna=False, sort=False)
-        valcounts = valcounts[valcounts > 0]
-        marginals.append(valcounts.values)
-        maps[col] = pd.Series(valcounts.index, index=np.arange(len(valcounts)))
-    return marginals, maps
-
-
 def unroll(matrix: np.ndarray) -> np.ndarray:
     '''Convert a matrix of cell counts to a matrix of cell indices with those counts.
 
@@ -340,3 +328,11 @@ def obscure_seed(true: np.ndarray,
         marginals.append(true.sum(axis=tuple(left_dim_is)).reshape(sum_indexer))
     return ipf_multidim(marginals)
 
+def get_axis_values(dataframe: pd.DataFrame
+                    ) -> Dict[str, pd.Series]:
+    '''Compute mappings of indices to categories for each dataframe column.'''
+    maps = {}
+    for col in dataframe:
+        values = pd.Series(dataframe[col].unique()).sort_values().values
+        maps[col] = pd.Series(values, index=np.arange(len(values)))
+    return maps
