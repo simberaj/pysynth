@@ -47,7 +47,7 @@ def test_ipf_correct(shape, zero_fraction):
     for i, marginal in enumerate(marginals):
         ipfed_sum = ipfed.sum(axis=tuple(j for j in range(ipfed.ndim) if j != i))
         # check the marginal sums match
-        assert (abs(ipfed_sum - marginal) < (IPF_PRECISION * ipfed.size / len(marginal))).all()
+        assert (abs(ipfed_sum - marginal) < (IPF_PRECISION * ipfed.size / len(marginal) * 10)).all()
 
 def test_ipf_dim_mismatch():
     with pytest.raises(ValueError):
