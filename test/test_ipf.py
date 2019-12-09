@@ -14,28 +14,33 @@ IPF_PRECISION = 1e-10
 
 np.random.seed(1711)
 
-@pytest.mark.parametrize('shape, zero_fraction', [
-        ((4, 4), 0),
-        ((8, 5), 0),
-        ((5, 3, 3), 0),
-        ((2, 8, 7, 4, 3), 0),
-        ((4, 4), 0.1),
-        ((8, 5), 0.2),
-        ((5, 3, 3), 0.1),
-        ((2, 8, 7, 4, 3), 0.05),
-    ]
-)
-def test_ipf_correct(shape, zero_fraction):
+SEED_GEN_PARAMS = [
+    ((4, 4), 0),
+    ((8, 5), 0),
+    ((5, 3, 3), 0),
+    ((2, 8, 7, 4, 3), 0),
+    ((4, 4), 0.1),
+    ((8, 5), 0.2),
+    ((5, 3, 3), 0.1),
+    ((2, 8, 7, 4, 3), 0.05),
+]
+
+def generate_seed_matrix(shape, zero_fraction):
     seed_matrix = np.random.rand(*shape)
     if zero_fraction > 0:
         seed_matrix[np.random.rand(*shape) < zero_fraction] = 0
+    return seed_matrix
+
+@pytest.mark.parametrize('shape, zero_fraction', SEED_GEN_PARAMS)
+def test_ipf_correct(shape, zero_fraction):
+    seed_matrix = generate_seed_matrix(shape, zero_fraction)
     marginals = [
         np.random.rand(dim) for dim in shape
     ]
     for i, marginal in enumerate(marginals):
         margsum = marginal.sum()
         marginals[i] = np.array([val * 50 / margsum for val in marginal])
-    ipfed = pysynth.ipf.ipf(seed_matrix, marginals, precision=IPF_PRECISION)
+    ipfed = pysynth.ipf.ipf(marginals, seed_matrix, precision=IPF_PRECISION)
     # check the shape and zeros are retained
     assert ipfed.shape == shape
     assert ((seed_matrix == 0) == (ipfed == 0)).all()
@@ -46,11 +51,11 @@ def test_ipf_correct(shape, zero_fraction):
 
 def test_ipf_dim_mismatch():
     with pytest.raises(ValueError):
-        pysynth.ipf.ipf(np.random.rand(2,2), list(np.ones((3,2))))
+        pysynth.ipf.ipf(list(np.ones((3,2))), np.random.rand(2,2))
 
 def test_ipf_sum_mismatch():
     with pytest.raises(ValueError):
-        pysynth.ipf.ipf(np.random.rand(2,2), [np.ones(2), np.full(2, 2)])
+        pysynth.ipf.ipf([np.ones(2), np.full(2, 2)], np.random.rand(2,2))
 
 @pytest.mark.parametrize('openml_id', [31, 1461, 40536])
 def test_get_marginals(openml_id):
@@ -127,3 +132,44 @@ def test_map_axes():
         for index, value in mapping.iteritems():
             assert (df[col][indices[:,i] == index] == value).all()
         i += 1
+
+def test_calc_true_matrix():
+    ipfsynth = pysynth.ipf.IPFSynthesizer(cond_dim=2)
+    n_rows = 400
+    n_cols = 4
+    n_cats = 5
+    cat_indices = np.arange(n_cats)
+    cat_objs = np.array([chr(97 + k) for k in np.arange(n_cats)])
+    map_to_objs = pd.Series(cat_objs, index=cat_indices)
+    ind_df = pd.DataFrame(
+        np.random.randint(n_cats, size=(n_rows, n_cols)),
+        columns=[chr(97 + k) for k in np.arange(n_cols)]
+    )
+    cat_df = ind_df.copy()
+    for col in cat_df.columns:
+        cat_df[col] = cat_df[col].map(map_to_objs)
+    ipfsynth.axis_values = {
+        col: map_to_objs for col in cat_df.columns
+    }
+    true_mat = ipfsynth.calc_true_matrix(cat_df)
+    assert true_mat.shape == tuple([n_cats] * n_cols)
+    assert true_mat.min() >= 0
+    assert true_mat.sum() == n_rows
+    assert np.isclose(true_mat, true_mat.astype(int)).all()
+    for inds, subdf in ind_df.groupby(list(ind_df.columns)):
+        assert true_mat[inds] == len(subdf.index)
+
+# @pytest.mark.parametrize('shape, zero_fraction', [((4, 3, 2), .1)])
+@pytest.mark.parametrize('shape, zero_fraction', SEED_GEN_PARAMS)
+def test_obscure_seed(shape, zero_fraction):
+    seed_matrix = (generate_seed_matrix(shape, zero_fraction) * 10).astype(int)
+    # print(seed_matrix.ndim, seed_matrix.shape)
+    # print(seed_matrix)
+    # for cond_dim in range(1, min(seed_matrix.ndim, 4)):
+    for cond_dim in range(1, min(seed_matrix.ndim + 1, 4)):
+        # print(cond_dim)
+        obscured = pysynth.ipf.obscure_seed(seed_matrix, cond_dim)
+        # print(seed_matrix)
+        # print(obscured)
+        # print(abs(obscured - seed_matrix).mean())
+    # raise RuntimeError

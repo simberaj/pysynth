@@ -2,6 +2,7 @@ from typing import Any, Union, Optional, List, Dict, Tuple
 
 import numpy as np
 import pandas as pd
+import itertools
 
 from . import catdecat
 
@@ -111,6 +112,8 @@ class IPFSynthesizer:
                  ignore_cols: List[str] = [],
                  seed: Optional[int] = None,
                  ):
+        if cond_dim < 1:
+            raise ValueError('cannot preserve less than one-dimensional sums')
         self.cond_dim = cond_dim
         self.rounder = (
             ROUNDERS[rounder](seed=seed) if isinstance(rounder, str)
@@ -135,12 +138,12 @@ class IPFSynthesizer:
         marginals, axis_values = get_marginals(discrete)
         self.axis_values = axis_values
         self.synthed_matrix = ipf(
-            self._compute_seed_matrix(discrete),
-            marginals
+            marginals,
+            obscure_seed(self.calc_true_matrix(discrete), self.cond_dim),
         )
         self.original_n_rows = dataframe.shape[0]
 
-    def generate(self, n_rows: Optional[int]) -> pd.DataFrame:
+    def sample(self, n: Optional[int] = None) -> pd.DataFrame:
         '''Generate a synthetic dataframe with a given number of rows.
 
         :param n_rows: Number of rows for the output dataframe. If not given,
@@ -156,53 +159,115 @@ class IPFSynthesizer:
     def fit_transform(self, dataframe: pd.DataFrame) -> pd.DataFrame:
         '''Fit the synthesizer and synthesize an equal-size dataframe.'''
         self.fit(dataframe)
-        return self.generate()
+        return self.sample()
 
-    def _compute_seed_matrix(dataframe: pd.DataFrame) -> np.ndarray:
-        raise NotImplementedError
+    def calc_true_matrix(self, dataframe: pd.DataFrame) -> np.ndarray:
+        '''Calculate a IPF matrix reflecting true observation frequencies.'''
+        for col, mapper in self.axis_values.items():
+            dataframe[col] = dataframe[col].map(
+                pd.Series(mapper.index, index=mapper.values)
+            )
+        true_seed = np.zeros(tuple(len(mapper) for mapper in self.axis_values.values()))
+        for indices in dataframe.itertuples(index=False, name=None):
+            true_seed[indices] += 1
+        return true_seed
 
 
-def ipf(seed_matrix: np.ndarray,
-        marginals: List[np.ndarray],
+def ipf(marginals: List[np.ndarray],
+        seed_matrix: Optional[np.ndarray] = None,
         precision: float = 1e-9
         ) -> np.ndarray:
-    '''Perform iterative proportional fitting (IPF).
+    '''Perform iterative proportional fitting (IPF) on 1D marginal sums.
 
+    Reformats the marginals to a generic n-D format and then delegates to
+    :func:`ipf_multidim`.
+
+    :param marginals: Marginal sums for the IPF dimensions. The marginal sums
+        of the output matrix will match these. The list should contain
+        one-dimensional arrays that sum to the same number.
     :param seed_matrix: Seed matrix, shows a-priori conditional probabilities
         across dimensions.
-    :param marginals: Marginal sums for the IPF dimensions. The marginal sums
-        of the output matrix will match these.
     :param precision: Terminate IPF when the largest difference of an
         individual cell value between two iterations drops below this
         threshold.
     '''
-    matrix = seed_matrix.astype(float)
-    n_dim = len(seed_matrix.shape)
-    if n_dim != len(marginals):
+    n_dim = len(marginals)
+    if seed_matrix is not None and len(seed_matrix.shape) != n_dim:
         raise ValueError('marginal dimensions do not match IPF seed')
-    total = marginals[0].sum()
-    for i in range(1, len(marginals)):
-        if not np.isclose(marginals[i].sum(), total):
-            raise ValueError('marginal sum totals do not match')
-    # precompute shapes, indices and values for marginal modifiers
-    shapes = {}
-    other_dims = {}
-    for dim_i in range(n_dim):
-        shapes[dim_i] = [-1 if i == dim_i else 1 for i in range(n_dim)]
-        other_dims[dim_i] = tuple(i for i in range(n_dim) if i != dim_i)
-    marginals = [
-        np.array(marginal).reshape(shapes[dim_i])
-        for dim_i, marginal in enumerate(marginals)
+    return ipf_multidim(
+        [
+            marginal.reshape([
+                -1 if i == dim_i else 1 for i in range(n_dim)
+            ])
+            for dim_i, marginal in enumerate(marginals)
+        ],
+        seed_matrix,
+        precision=precision
+    )
+
+
+def ipf_multidim(marginals: List[np.ndarray],
+                 seed_matrix: Optional[np.ndarray] = None,
+                 precision: float = 1e-9
+                 ) -> np.ndarray:
+    '''Perform iterative proportional fitting (IPF) on arbitrary marginal sums.
+
+    :param marginals: Marginal sums for the final matrix. The list should
+        contain arrays with equal sums. Their dimensions should correspond to
+        the seed matrix or be 1 - at dimensions for which the given marginal
+        sum is summed (contracted).
+    :param seed_matrix: Seed matrix, shows a-priori conditional probabilities
+        across dimensions. If not given, the matrix shape will be computed from
+        the marginals and it will be initialized by ones.
+    :param precision: Terminate IPF when the largest difference of an
+        individual cell value between two iterations drops below this
+        threshold.
+    '''
+    if seed_matrix is None:
+        shape = tuple(
+            max(marg.shape[i] for marg in marginals)
+            for i in range(min(marg.ndim for marg in marginals))
+        )
+        matrix = np.ones(shape)
+    else:
+        matrix = seed_matrix.astype(float)
+        shape = matrix.shape
+    ipf_check_marginals(marginals, shape)
+    other_dims = [
+        tuple(
+            dim_i for dim_i in range(len(shape))
+            if marginal.shape[dim_i] == 1
+        )
+        for marginal in marginals
     ]
-    # perform IPF
     diff = precision + 1
     while diff > precision:
         previous = matrix
-        for dim_i, marginal in enumerate(marginals):
-            dim_sums = matrix.sum(axis=other_dims[dim_i]).reshape(shapes[dim_i])
+        for marginal, other_dimtup in zip(marginals, other_dims):
+            dim_sums = matrix.sum(axis=other_dimtup).reshape(marginal.shape)
             matrix = matrix / np.where(dim_sums == 0, 1, dim_sums) * marginal
         diff = abs(matrix - previous).max()
     return matrix
+
+
+def ipf_check_marginals(marginals: List[np.ndarray], shape: Tuple[int]) -> None:
+    '''Checks whether the marginal sums are valid for IPF of given shape.
+
+    Used internally by :func:`ipf_multidim` so uses the format of marginals
+    required by that function.
+
+    :param marginals: List of marginal sum arrays to be checked.
+    :param shape: Shape of the resulting matrix.
+    '''
+    total = marginals[0].sum()
+    for i, marginal in enumerate(marginals):
+        if i != 0 and not np.isclose(marginal.sum(), total):
+            raise ValueError('marginal sum totals do not match')
+        if marginal.ndim != len(shape):
+            raise ValueError('marginal dimensions do not match seed')
+        for j, mshape in enumerate(marginal.shape):
+            if mshape != 1 and mshape != shape[j]:
+                raise ValueError('marginal shape does not match seed')
 
 
 def get_marginals(dataframe: pd.DataFrame
@@ -248,3 +313,30 @@ def map_axes(indices: np.ndarray,
     for col, mapper in axis_values.items():
         dataframe[col] = dataframe[col].map(mapper)
     return dataframe
+
+
+def obscure_seed(true: np.ndarray,
+                 cond_dim: int = 2
+                 ) -> np.ndarray:
+    '''Produce a matrix preserving some cross-sums of the original.
+
+    :param true: The matrix to be obscured. The output matrix will match
+        sums of its cells as aggregated to each combination of `cond_dim`
+        dimensions.
+    :param cond_dim: The number of dimensions to preserve cross-sums for.
+    '''
+    if cond_dim < 1: raise ValueError('invalid preservation dimension count')
+    marginals = []
+    dim_is = list(range(true.ndim))
+    for sel_dim_is in itertools.combinations(dim_is, cond_dim):
+        left_dim_is = []
+        sum_indexer = []
+        for dim_i in dim_is:
+            if dim_i in sel_dim_is:
+                sum_indexer.append(true.shape[dim_i])
+            else:
+                sum_indexer.append(1)
+                left_dim_is.append(dim_i)
+        marginals.append(true.sum(axis=tuple(left_dim_is)).reshape(sum_indexer))
+    return ipf_multidim(marginals)
+
