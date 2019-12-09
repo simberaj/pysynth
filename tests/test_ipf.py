@@ -189,6 +189,7 @@ def test_obscure_seed(shape, zero_fraction):
 def test_synth(openml_id, rder):
     df = test_data.get_openml(openml_id)
     synth = pysynth.ipf.IPFSynthesizer(rounder=rder).fit_transform(df)
+    test_data.check_synthdf_equal(df, synth)
     assert frozenset(df.columns) == frozenset(synth.columns)
     assert len(df.index) == len(synth.index)
     for col in df.columns:
