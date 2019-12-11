@@ -1,4 +1,4 @@
-name: Upload Python Package
+name: Upload Python Package to TestPyPI
 
 on:
   release:
@@ -8,7 +8,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@master
     - name: Set up Python
       uses: actions/setup-python@v1
       with:
@@ -20,5 +20,5 @@ jobs:
     - name: Build and publish
       uses: pypa/gh-action-pypi-publish@master
       with:
-        password: ${{ secrets.TEST_PYPI_PASSWORD }}
+        password: ${{ secrets.test_pypi_apitoken }}
         repository_url: https://test.pypi.org/legacy/
