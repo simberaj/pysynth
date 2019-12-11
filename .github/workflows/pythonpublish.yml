@@ -18,8 +18,12 @@ jobs:
         python -m pip install --upgrade pip
         pip install setuptools wheel twine
         python setup.py sdist bdist_wheel
-    - name: Build and publish
+    - name: Build and publish to Test PyPI
       uses: pypa/gh-action-pypi-publish@master
       with:
         password: ${{ secrets.test_pypi_apitoken }}
         repository_url: https://test.pypi.org/legacy/
+    - name: Build and publish
+      uses: pypa/gh-action-pypi-publish@master
+      with:
+        password: ${{ secrets.pypi_apitoken }}
