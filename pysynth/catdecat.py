@@ -22,8 +22,6 @@ import scipy.stats
 import sklearn.model_selection
 import sklearn.neighbors
 
-np.seterr(all='raise')
-
 
 class Binner:
     '''Interface for numeric variable interval boundary determiners.'''
